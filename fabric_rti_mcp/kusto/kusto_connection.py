@@ -63,12 +63,12 @@ class KustoConnection:
                 OnBehalfOfCredential(
                     tenant_id=os.environ.get(
                         "TENANT_ID", ""
-                    ),  # ID of the service principal's tenant. Also called its "directory" ID.
-                    user_assertion=user_token,  # This is the user token passed in from front-end.
+                    ),
+                    user_assertion=user_token,
                     client_id=os.environ.get(
                         "CLIENT_ID", ""
-                    ),  # The App Registration ID of the middle-tier service. That is this service, NOT the user.
-                    client_certificate=cert,  # It is the private key and public certificate that proves the identity of your Azure AD App Registration.
+                    ),
+                    client_certificate=cert,  
                 )
             )
 
@@ -99,14 +99,12 @@ class KustoConnection:
             # Create credential - DefaultAzureCredential will try multiple auth methods
             # including managed identity
             if client_id:
-                # Use specific user-assigned managed identity
                 credential = ManagedIdentityCredential(client_id=client_id)
+                cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
             else:
                 # Use system-assigned managed identity or DefaultAzureCredential chain
                 credential = DefaultAzureCredential()
-
-            # Create certificate client
-            cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
+                cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
 
             logger.info(f"Retrieving certificate '{certificate_name}' from Key Vault")
 
