@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import os
 import uuid
 from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Optional, TypeVar
@@ -10,7 +11,7 @@ from azure.kusto.data import (
     ClientRequestProperties,
     KustoConnectionStringBuilder,
 )
-
+from fastmcp.server.dependencies import get_access_token, AccessToken
 from fabric_rti_mcp import __version__  # type: ignore
 from fabric_rti_mcp.kusto.kusto_config import KustoConfig
 from fabric_rti_mcp.kusto.kusto_connection import KustoConnection, sanitize_uri
@@ -24,16 +25,7 @@ class KustoConnectionManager:
     def __init__(self) -> None:
         self._cache: Dict[str, KustoConnection] = {}
 
-    def connect_to_all_known_services(self) -> None:
-        """
-        Use at your own risk. Connecting takes time and might make the server unresponsive.
-        """
-        if CONFIG.eager_connect:
-            known_services = KustoConfig.get_known_services().values()
-            for known_service in known_services:
-                self.get(known_service.service_uri)
-
-    def get(self, cluster_uri: str) -> KustoConnection:
+    def get(self, cluster_uri: str, use_obo: bool, user_token: Optional[str]) -> KustoConnection:
         """
         Retrieves a cached or new KustoConnection for the given URI.
         This method is the single entry point for accessing connections.
@@ -55,23 +47,27 @@ class KustoConnectionManager:
                 "and unknown connections are not permitted by the administrator."
             )
 
-        connection = KustoConnection(sanitized_uri, default_database=default_database)
-        self._cache[sanitized_uri] = connection
+        connection = KustoConnection(sanitized_uri, default_database=default_database, useOBO=use_obo, user_token=user_token)
+        
+        # DO NOT CACHE IF using On-behalf of connections. This would allow others to re-use other user's credentials.
+        if not use_obo:
+            self._cache[sanitized_uri] = connection
+            
         return connection
-
 
 # --- In the main module scope ---
 # Instantiate it once to be used as a singleton throughout the module.
+# In a shared setting, this is a security risk.
 _CONNECTION_MANAGER = KustoConnectionManager()
-# Not recommended for production use, but useful for testing and development.
-if CONFIG.eager_connect:
-    _CONNECTION_MANAGER.connect_to_all_known_services()
+#_OBO_CONNECTION_MANAGER = KustoOboConnectionManager()
 
-
-def get_kusto_connection(cluster_uri: str) -> KustoConnection:
+def get_kusto_connection(cluster_uri: str, use_obo: bool, user_token: Optional[str]) -> KustoConnection:
     # Nicety to allow for easier mocking in tests.
-    return _CONNECTION_MANAGER.get(cluster_uri)
+    return _CONNECTION_MANAGER.get(cluster_uri, use_obo, user_token)
 
+# def get_kusto_obo_connection(cluster_uri: str, user_token: str) -> KustoOboConnection:
+#     # Nicety to allow for easier mocking in tests.
+#     return _OBO_CONNECTION_MANAGER.get(cluster_uri, user_token=user_token)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -97,17 +93,7 @@ def _crp(action: str, is_destructive: bool, ignore_readonly: bool) -> ClientRequ
     crp.client_request_id = f"KFRTI_MCP.{action}:{str(uuid.uuid4())}"  # type: ignore
     if not is_destructive and not ignore_readonly:
         crp.set_option("request_readonly", True)
-
-    # Set global timeout if configured
-    if CONFIG.timeout_seconds is not None:
-        # Convert seconds to timespan format (HH:MM:SS)
-        hours, remainder = divmod(CONFIG.timeout_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        timeout_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        crp.set_option("servertimeout", timeout_str)
-
     return crp
-
 
 def _execute(
     query: str,
@@ -120,7 +106,12 @@ def _execute(
     caller_func = caller_frame.f_globals.get(action_name)  # type: ignore
     is_destructive = hasattr(caller_func, "_is_destructive")
 
-    connection = get_kusto_connection(cluster_uri)
+    use_obo = os.environ.get('USE_OBO', 'true').lower() == 'true'
+    user_token: AccessToken | None = get_access_token()
+    if use_obo and user_token is None:
+        raise ValueError("No access token available for authentication")
+    
+    connection = get_kusto_connection(cluster_uri, use_obo, user_token.token if user_token else None)
     client = connection.query_client
 
     # agents can send messy inputs
@@ -145,7 +136,6 @@ def kusto_known_services() -> List[Dict[str, str]]:
     services = KustoConfig.get_known_services().values()
     return [asdict(service) for service in services]
 
-
 def kusto_query(query: str, cluster_uri: str, database: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Executes a KQL query on the specified database. If no database is provided,
@@ -154,6 +144,7 @@ def kusto_query(query: str, cluster_uri: str, database: Optional[str] = None) ->
     :param query: The KQL query to execute.
     :param cluster_uri: The URI of the Kusto cluster.
     :param database: Optional database name. If not provided, uses the default database.
+    :param context: MCP context containing authentication information.
     :return: The result of the query execution as a list of dictionaries (json).
     """
     return _execute(query, cluster_uri, database=database)
@@ -226,9 +217,7 @@ def kusto_get_table_schema(table_name: str, cluster_uri: str, database: Optional
 
 
 def kusto_get_function_schema(
-    function_name: str,
-    cluster_uri: str,
-    database: Optional[str] = None,
+    function_name: str, cluster_uri: str, database: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Retrieves schema information for a specific function, including parameters and output schema.

@@ -7,7 +7,7 @@ name = "microsoft-fabric-rti-mcp"
 dynamic = ["version"]
 description = "Microsoft Fabric RTI MCP"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3.10",
@@ -18,10 +18,12 @@ classifiers = [
 ]
 dependencies = [
     "httpx~=0.28.1",
-    "fastmcp~=2.5.0",
+    "fastmcp~=2.11.3",
     "azure-kusto-data~=5.0.0",
-    "azure-identity",
-    "azure-kusto-ingest~=5.0.0"
+    "azure-identity>=1.15.0",
+    "azure-kusto-ingest~=5.0.0",
+    "azure-keyvault-certificates>=4.7.0",
+    "azure-keyvault-secrets>=4.7.0"
 ]
 
 [project.optional-dependencies]
