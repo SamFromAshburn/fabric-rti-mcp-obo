@@ -47,23 +47,28 @@ class KustoConnectionManager:
                 "and unknown connections are not permitted by the administrator."
             )
 
-        connection = KustoConnection(sanitized_uri, default_database=default_database, useOBO=use_obo, user_token=user_token)
-        
+        connection = KustoConnection(
+            sanitized_uri, default_database=default_database, useOBO=use_obo, user_token=user_token
+        )
+
         # DO NOT CACHE IF using On-behalf of connections. This would allow others to re-use other user's credentials.
         if not use_obo:
             self._cache[sanitized_uri] = connection
-            
+
         return connection
+
 
 # --- In the main module scope ---
 # Instantiate it once to be used as a singleton throughout the module.
 # In a shared setting, this is a security risk.
 _CONNECTION_MANAGER = KustoConnectionManager()
-#_OBO_CONNECTION_MANAGER = KustoOboConnectionManager()
+# _OBO_CONNECTION_MANAGER = KustoOboConnectionManager()
+
 
 def get_kusto_connection(cluster_uri: str, use_obo: bool, user_token: Optional[str]) -> KustoConnection:
     # Nicety to allow for easier mocking in tests.
     return _CONNECTION_MANAGER.get(cluster_uri, use_obo, user_token)
+
 
 # def get_kusto_obo_connection(cluster_uri: str, user_token: str) -> KustoOboConnection:
 #     # Nicety to allow for easier mocking in tests.
@@ -95,6 +100,7 @@ def _crp(action: str, is_destructive: bool, ignore_readonly: bool) -> ClientRequ
         crp.set_option("request_readonly", True)
     return crp
 
+
 def _execute(
     query: str,
     cluster_uri: str,
@@ -106,11 +112,11 @@ def _execute(
     caller_func = caller_frame.f_globals.get(action_name)  # type: ignore
     is_destructive = hasattr(caller_func, "_is_destructive")
 
-    use_obo = os.environ.get('USE_OBO', 'true').lower() == 'true'
+    use_obo = os.environ.get("USE_OBO", "true").lower() == "true"
     user_token: AccessToken | None = get_access_token()
     if use_obo and user_token is None:
         raise ValueError("No access token available for authentication")
-    
+
     connection = get_kusto_connection(cluster_uri, use_obo, user_token.token if user_token else None)
     client = connection.query_client
 
@@ -135,6 +141,7 @@ def kusto_known_services() -> List[Dict[str, str]]:
     """
     services = KustoConfig.get_known_services().values()
     return [asdict(service) for service in services]
+
 
 def kusto_query(query: str, cluster_uri: str, database: Optional[str] = None) -> List[Dict[str, Any]]:
     """

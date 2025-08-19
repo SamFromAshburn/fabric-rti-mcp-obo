@@ -7,11 +7,13 @@ from fabric_rti_mcp.common import logger
 from fabric_rti_mcp.eventstream import eventstream_tools
 from fabric_rti_mcp.kusto import kusto_config, kusto_tools
 
+
 def register_tools(mcp: FastMCP) -> None:
     logger.info("Kusto configuration keys found in environment:")
     logger.info(", ".join(kusto_config.KustoConfig.existing_env_vars()))
     kusto_tools.register_tools(mcp)
     eventstream_tools.register_tools(mcp)
+
 
 def main() -> None:
     # writing to stderr because stdout is used for the transport
@@ -26,6 +28,7 @@ def main() -> None:
     register_tools(mcp)
     logger.info(f"Registering tools for transport: streamable-http")
     mcp.run(transport="streamable-http")
+
 
 if __name__ == "__main__":
     main()
