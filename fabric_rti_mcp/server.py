@@ -27,7 +27,6 @@ def main() -> None:
     # import later to allow for environment variables to be set from command line
     mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", json_response=True)
     register_tools(mcp)
-    logger.info(f"Registering tools for transport: streamable-http")
     mcp.run(transport="streamable-http")
 
 

@@ -20,6 +20,8 @@ def test_execute_basic_query(
 
     mock_connection = MagicMock()
     mock_connection.query_client = mock_client
+    mock_connection.useOBO = False
+    mock_connection.user_token = None
     mock_connection.default_database = "default_db"
     mock_connection.timeout_seconds = None  # Add timeout_seconds attribute
     mock_get_kusto_connection.return_value = mock_connection
@@ -31,7 +33,7 @@ def test_execute_basic_query(
     result = kusto_query(query, sample_cluster_uri, database=database)
 
     # Assert
-    mock_get_kusto_connection.assert_called_once_with(sample_cluster_uri)
+    mock_get_kusto_connection.assert_called_once_with(sample_cluster_uri, False, None)
     mock_client.execute.assert_called_once()
 
     # Verify database and stripped query

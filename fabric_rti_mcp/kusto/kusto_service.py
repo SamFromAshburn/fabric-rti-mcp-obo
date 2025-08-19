@@ -99,6 +99,15 @@ def _crp(action: str, is_destructive: bool, ignore_readonly: bool) -> ClientRequ
     crp.client_request_id = f"KFRTI_MCP.{action}:{str(uuid.uuid4())}"  # type: ignore
     if not is_destructive and not ignore_readonly:
         crp.set_option("request_readonly", True)
+
+    # Set global timeout if configured
+    if CONFIG.timeout_seconds is not None:
+        # Convert seconds to timespan format (HH:MM:SS)
+        hours, remainder = divmod(CONFIG.timeout_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        timeout_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        crp.set_option("servertimeout", timeout_str)
+
     return crp
 
 
@@ -113,7 +122,7 @@ def _execute(
     caller_func = caller_frame.f_globals.get(action_name)  # type: ignore
     is_destructive = hasattr(caller_func, "_is_destructive")
 
-    use_obo = os.environ.get("USE_OBO", "true").lower() == "true"
+    use_obo = os.environ.get("USE_OBO", "false").lower() == "true"
     user_token: AccessToken | None = get_access_token()
     if use_obo and user_token is None:
         raise ValueError("No access token available for authentication")

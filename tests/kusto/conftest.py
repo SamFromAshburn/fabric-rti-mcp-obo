@@ -42,7 +42,7 @@ def mock_query_client() -> Mock:
 def mock_kusto_connection(mock_query_client: Mock) -> KustoConnection:
     """Mock KustoConnection with configured query client."""
     with patch("fabric_rti_mcp.kusto.kusto_connection.KustoConnectionStringBuilder"):
-        connection = KustoConnection("https://test.kusto.windows.net")
+        connection = KustoConnection("https://test.kusto.windows.net", False, None, None)
         connection.query_client = mock_query_client
         return connection
 
