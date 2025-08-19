@@ -98,14 +98,8 @@ class KustoConnection:
         try:
             # Create credential - DefaultAzureCredential will try multiple auth methods
             # including managed identity
-            if client_id:
-                credential = ManagedIdentityCredential(client_id=client_id)
-                cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
-            else:
-                # Use system-assigned managed identity or DefaultAzureCredential chain
-                credential = DefaultAzureCredential()
-                cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
-
+            credential = ManagedIdentityCredential(client_id=client_id)
+            cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
             logger.info(f"Retrieving certificate '{certificate_name}' from Key Vault")
 
             # Get the certificate
