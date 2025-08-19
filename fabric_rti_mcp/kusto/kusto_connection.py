@@ -61,14 +61,10 @@ class KustoConnection:
             )
             return ChainedTokenCredential(
                 OnBehalfOfCredential(
-                    tenant_id=os.environ.get(
-                        "TENANT_ID", ""
-                    ),
+                    tenant_id=os.environ.get("TENANT_ID", ""),
                     user_assertion=user_token,
-                    client_id=os.environ.get(
-                        "CLIENT_ID", ""
-                    ),
-                    client_certificate=cert,  
+                    client_id=os.environ.get("CLIENT_ID", ""),
+                    client_certificate=cert,
                 )
             )
 
