@@ -2,6 +2,7 @@ import os
 import sys
 
 from mcp.server.fastmcp import FastMCP
+
 from fabric_rti_mcp import __version__
 from fabric_rti_mcp.common import logger
 from fabric_rti_mcp.eventstream import eventstream_tools

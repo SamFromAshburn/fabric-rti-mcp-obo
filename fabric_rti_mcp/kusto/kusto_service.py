@@ -11,7 +11,8 @@ from azure.kusto.data import (
     ClientRequestProperties,
     KustoConnectionStringBuilder,
 )
-from fastmcp.server.dependencies import get_access_token, AccessToken
+from fastmcp.server.dependencies import AccessToken, get_access_token
+
 from fabric_rti_mcp import __version__  # type: ignore
 from fabric_rti_mcp.kusto.kusto_config import KustoConfig
 from fabric_rti_mcp.kusto.kusto_connection import KustoConnection, sanitize_uri

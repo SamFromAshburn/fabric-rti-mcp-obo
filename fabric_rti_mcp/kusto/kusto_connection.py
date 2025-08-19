@@ -1,14 +1,18 @@
 import logging
 import os
 import sys
-
 from typing import Optional
-from azure.identity import ChainedTokenCredential, DefaultAzureCredential, ManagedIdentityCredential
+
+from azure.identity import (
+    ChainedTokenCredential,
+    DefaultAzureCredential,
+    ManagedIdentityCredential,
+    OnBehalfOfCredential,
+)
 from azure.keyvault.certificates import CertificateClient
 from azure.keyvault.secrets import SecretClient
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.ingest import KustoStreamingIngestClient
-from azure.identity import OnBehalfOfCredential
 
 logging.basicConfig(
     level=logging.INFO,
