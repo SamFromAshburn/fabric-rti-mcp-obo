@@ -57,13 +57,13 @@ class KustoConnection:
             cert = self._get_certificate_from_keyvault(
                 keyvault_url=os.environ.get("KEYVAULT_URL", ""),
                 certificate_name=os.environ.get("AZURE_CLIENT_CERTIFICATE_NAME", ""),
-                client_id=os.environ.get("CLIENT_ID", ""),
+                client_id=os.environ.get("KEYVAULT_CLIENT_ID", ""),
             )
             return ChainedTokenCredential(
                 OnBehalfOfCredential(
                     tenant_id=os.environ.get("TENANT_ID", ""),
                     user_assertion=user_token,
-                    client_id=os.environ.get("CLIENT_ID", ""),
+                    client_id=os.environ.get("APP_CLIENT_ID", ""),
                     client_certificate=cert,
                 )
             )
