@@ -35,10 +35,14 @@ ENV TENANT_ID=
 # Enable On-Behalf-Of (OBO) flow
 ENV USE_OBO=false
 # OBO flow required. The App Registration ID of the middle-tier service. That is this service, NOT the user.
-ENV CLIENT_ID=
- # OBO flow required. Name of the cert in keyvault
+ENV APP_CLIENT_ID=
+
+# Key Vault settings
+# Identity that will be used to access KV. This client id should have appropriate permissions to access certificate.
+ENV KEYVAULT_CLIENT_ID=
+# OBO flow required. Name of the cert in keyvault foundry-agent.sfrp-test.microsoft.com
 ENV AZURE_CLIENT_CERTIFICATE_NAME=
- # OBO flow required. Keyvault endpoint
+# OBO flow required. Keyvault endpoint
 ENV KEYVAULT_URL=
 
 EXPOSE 80
