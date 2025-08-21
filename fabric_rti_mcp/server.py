@@ -1,6 +1,7 @@
 import os
 import sys
 
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 from mcp.server.fastmcp import FastMCP
 
 from fabric_rti_mcp import __version__
@@ -25,30 +26,31 @@ def main() -> None:
     logger.info(f"Platform: {sys.platform}")
     logger.error(f"PID: {os.getpid()}")
 
-    if(os.getenv("USE_OBO") == True:
-       APP_CLIENT_ID = os.getenv("APP_CLIENT_ID")
-       TENANT_ID = os.getenv("TENANT_ID")
-       # API audience
-       API_AUDIENCE = f"api://{APP_CLIENT_ID}"
+    if os.getenv("USE_OBO", "").lower() == "true":
+        # Documentation:
+        APP_CLIENT_ID = os.getenv("APP_CLIENT_ID")
+        TENANT_ID = os.getenv("TENANT_ID")
+        # API audience
+        API_AUDIENCE = f"api://{APP_CLIENT_ID}"
 
         # Azure Entra ID JWKS endpoint
         JWKS_URI = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
 
         # Configure Bearer Token authentication for Azure Entra ID
         logger.info("Configuring Bearer Token authentication with audience: %s", API_AUDIENCE)
-        auth = BearerAuthProvider(
+        verifier = JWTVerifier(
             jwks_uri=JWKS_URI,
             issuer=f"https://sts.windows.net/{TENANT_ID}/",  # Match the token's issuer format in the API
             algorithm="RS256",  # Azure Entra ID uses RS256
             audience=API_AUDIENCE,  # required audience
-            required_scopes=["execute"]  # Optional: add required scopes if needed
+            required_scopes=["execute"],  # Optional: add required scopes if needed
         )
 
         # import later to allow for environment variables to be set from command line
-        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", json_response=True, auth=auth)
+        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", token_verifier=verifier)
     else:
-        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", json_response=True, auth=auth)
-        
+        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0")
+
     register_tools(mcp)
     mcp.run(transport="streamable-http")
 
