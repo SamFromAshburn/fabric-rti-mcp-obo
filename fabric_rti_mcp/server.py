@@ -24,7 +24,8 @@ def main() -> None:
     logger.info(f"Version: {__version__}")
     logger.info(f"Python version: {sys.version}")
     logger.info(f"Platform: {sys.platform}")
-    logger.error(f"PID: {os.getpid()}")
+    logger.info(f"PID: {os.getpid()}")
+    logger.info(f"USE OBO: {os.getenv('USE_OBO', '')}")
 
     if os.getenv("USE_OBO", "").lower() == "true":
         # Documentation:
