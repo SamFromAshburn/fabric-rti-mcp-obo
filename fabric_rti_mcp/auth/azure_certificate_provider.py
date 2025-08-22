@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from azure.identity import ManagedIdentityCredential
-from azure.keyvault.secrets import SecretClient
+from azure.keyvault.certificates import CertificateClient
 from fastmcp.server.auth.providers.bearer import BearerAuthProvider
 from fastmcp.utilities.logging import get_logger
 
@@ -90,50 +90,31 @@ class AzureBearerTokenProvider(BearerAuthProvider):
         Returns:
             PEM-encoded public key extracted from the certificate
         """
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+
         try:
             # Create credential using managed identity
             credential = ManagedIdentityCredential(client_id=self.keyvault_client_id)
-            secret_client = SecretClient(vault_url=self.keyvault_url, credential=credential)
+            certificate_client = CertificateClient(vault_url=self.keyvault_url, credential=credential)
 
             logger.info(f"Retrieving certificate '{self.certificate_name}' from Key Vault")
-
-            # Get the certificate with private key as a secret
-            certificate_secret = secret_client.get_secret(self.certificate_name)
-
-            if not certificate_secret.value:
-                raise Exception("Certificate secret value is empty")
-
+            certificate = certificate_client.get_certificate(self.certificate_name)
             logger.info(f"Successfully retrieved certificate: {self.certificate_name}")
 
-            # Extract public key from certificate
-            import base64
+            # Extract the public key from the certificate
+            cert_bytes = certificate.cer  # This is in DER format
+            if cert_bytes is None:
+                raise Exception("Certificate does not contain DER-encoded data")
+            x509_cert = x509.load_der_x509_certificate(bytes(cert_bytes), default_backend())
+            public_key = x509_cert.public_key()
 
-            from cryptography import x509
+            if not public_key:
+                raise Exception("No public key could be extracted from the certificate")
+
+            # Serialize public key to PEM format string
             from cryptography.hazmat.primitives import serialization
 
-            cert_value = certificate_secret.value
-
-            # Handle different certificate formats
-            if cert_value.startswith("-----BEGIN CERTIFICATE-----"):
-                # Already in PEM format
-                cert_data = cert_value.encode()
-            elif cert_value.startswith("-----BEGIN"):
-                # Some other PEM format, try to extract certificate part
-                cert_data = cert_value.encode()
-            else:
-                # Assume base64 encoded certificate
-                try:
-                    decoded_cert = base64.b64decode(cert_value)
-                    cert_data = f"-----BEGIN CERTIFICATE-----\n{base64.b64encode(decoded_cert).decode()}\n-----END CERTIFICATE-----".encode()
-                except Exception:
-                    # If base64 decode fails, try as raw bytes
-                    cert_data = cert_value.encode()
-
-            # Load the certificate and extract public key
-            certificate = x509.load_pem_x509_certificate(cert_data)
-            public_key = certificate.public_key()
-
-            # Serialize public key to PEM format
             public_key_pem = public_key.public_bytes(
                 encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
             )

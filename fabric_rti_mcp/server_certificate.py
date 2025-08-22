@@ -39,8 +39,8 @@ if use_obo:
         logger.info("AzureBearerTokenProvider Provider Initialized")
         mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", auth=provider)
     except Exception as e:
-        logger.error(f"Failed to initialize certificate authentication: {e}")
-        raise RuntimeError(f"Certificate authentication setup failed: {e}")
+        logger.error(f"Failed to initialize AzureBearerTokenProvider: {e}")
+        raise RuntimeError(f"AzureBearerTokenProvider setup failed: {e}")
 else:
     # Create FastMCP instance without OAuth provider
     # No Authentication will be handled. Meant for local dev.
