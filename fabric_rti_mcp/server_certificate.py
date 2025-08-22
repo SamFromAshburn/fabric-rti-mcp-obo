@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 
 from fabric_rti_mcp import __version__
 from fabric_rti_mcp.auth.auth_service import AuthService
-from fabric_rti_mcp.auth.azure_certificate_provider import AzureCertificateProvider
+from fabric_rti_mcp.auth.azure_certificate_provider import AzureBearerTokenProvider
 from fabric_rti_mcp.common import logger
 from fabric_rti_mcp.kusto.kusto_query_executor import KustoQueryExecutor
 from fabric_rti_mcp.staticstrings import StaticStrings
@@ -35,8 +35,8 @@ if use_obo:
         # Documentation: https://gofastmcp.com/integrations/azure
         # FastMCP's Azure Provider does NOT accept certificates, only azure secrets.
         # This overrides this behavior.
-        provider = AzureCertificateProvider()
-        logger.info("Certificate authentication handler initialized")
+        provider = AzureBearerTokenProvider()
+        logger.info("AzureBearerTokenProvider Provider Initialized")
         mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", auth=provider)
     except Exception as e:
         logger.error(f"Failed to initialize certificate authentication: {e}")
