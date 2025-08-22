@@ -39,14 +39,20 @@ class AzureCertificateTokenVerifier(TokenVerifier):
                 )
 
                 if response.status_code != 200:
-                    logger.debug(
+                    logger.error(
                         "Azure token verification failed: %d - %s",
                         response.status_code,
-                        response.text[:200],
+                        response.text[:500],  # More detailed error info
                     )
+                    # Log additional details for debugging
+                    if response.status_code == 401:
+                        logger.error("Token verification failed - check token validity and required scopes")
+                    elif response.status_code == 403:
+                        logger.error("Token verification failed - insufficient permissions")
                     return None
 
                 user_data = response.json()
+                logger.info("Token verification successful for user: %s", user_data.get("userPrincipalName", "unknown"))
 
                 # Create AccessToken with Azure user info
                 return AccessToken(
@@ -63,7 +69,7 @@ class AzureCertificateTokenVerifier(TokenVerifier):
                     },
                 )
         except Exception as e:
-            logger.debug("Azure token verification error: %s", str(e))
+            logger.error("Azure token verification error: %s", str(e))
             return None
 
 

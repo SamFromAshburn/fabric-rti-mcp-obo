@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class CertificateAuthHandler:
     """Handles certificate-based authentication for Azure scenarios."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.keyvault_url = os.getenv("KEYVAULT_URL", "")
         self.certificate_name = os.getenv("AZURE_CLIENT_CERTIFICATE_NAME", "")
         self.keyvault_client_id = os.getenv("KEYVAULT_CLIENT_ID", "")

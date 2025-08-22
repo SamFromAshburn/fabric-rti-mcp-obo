@@ -25,6 +25,7 @@ logger.info(f"Python version: {sys.version}")
 logger.info(f"Platform: {sys.platform}")
 logger.info(f"PID: {os.getpid()}")
 logger.info(f"USE OBO: {os.getenv('USE_OBO', '')}")
+logger.info(f"BASE URL: {os.getenv('BASE_URL', '')}")
 
 use_obo = os.getenv("USE_OBO", "").lower() == "true"
 cert_auth_handler = None
