@@ -54,7 +54,7 @@ class AzureBearerTokenProvider(BearerAuthProvider):
             raise ValueError("tenant_id is required - set via parameter or TENANT_ID environment variable")
 
         # Azure AD JWKS endpoint for token signature verification
-        jwks_uri = f"https://login.microsoftonline.com/{self.tenant_id}/discovery/v2.0/keys"
+        # jwks_uri = f"https://login.microsoftonline.com/{self.tenant_id}/discovery/v2.0/keys"
 
         # Azure token issuer format
         issuer = f"https://sts.windows.net/{self.tenant_id}/"
@@ -69,7 +69,6 @@ class AzureBearerTokenProvider(BearerAuthProvider):
 
         # Initialize parent BearerAuthProvider with Azure-specific configuration
         super().__init__(
-            jwks_uri=jwks_uri,
             issuer=issuer,
             public_key=public_key_pem,  # Use extracted public key for verification
             algorithm="RS256",  # Azure Entra ID uses RS256
