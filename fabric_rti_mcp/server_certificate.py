@@ -32,7 +32,7 @@ cert_auth_handler = None
 if use_obo:
     try:
         # Documentation: https://gofastmcp.com/integrations/azure
-        # FastMCP's Azure Provider does NOT accept certificates, only azure secrets. 
+        # FastMCP's Azure Provider does NOT accept certificates, only azure secrets.
         # This overrides this behavior.
         provider = AzureCertificateProvider()
         logger.info("Certificate authentication handler initialized")
