@@ -3,9 +3,10 @@
 import os
 from unittest.mock import patch
 
+from fabric_rti_mcp.kusto.kusto_config import KustoConfig
+
 # from azure.kusto.data import ClientRequestProperties
 
-from fabric_rti_mcp.kusto.kusto_config import KustoConfig
 
 
 def test_config_loads_timeout_from_env() -> None:
