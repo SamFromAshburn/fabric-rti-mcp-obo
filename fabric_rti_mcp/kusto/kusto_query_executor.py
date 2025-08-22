@@ -44,7 +44,7 @@ class KustoConnectionManager:
             )
 
         connection = KustoConnection(
-            sanitized_uri, default_database=default_database, useOBO=use_obo, user_token=user_token
+            sanitized_uri, useOBO=use_obo, user_token=user_token, default_database=default_database
         )
 
         self._cache[sanitized_uri] = connection
@@ -84,19 +84,37 @@ class KustoQueryExecutor:
         cluster_uri: str,
         readonly_override: bool = False,
         database: Optional[str] = None,
+        user_token_override: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Executes a Kusto query or command and returns formatted results."""
+        """Executes a Kusto query or command and returns formatted results.
+
+        Args:
+            query: The KQL query or command to execute
+            cluster_uri: The Kusto cluster URI
+            readonly_override: Whether to override readonly restrictions
+            database: Optional database name
+            user_token_override: Optional user token for certificate-based auth
+        """
         caller_frame = inspect.currentframe().f_back  # type: ignore
         action_name = caller_frame.f_code.co_name  # type: ignore
         caller_func = caller_frame.f_globals.get(action_name)  # type: ignore
         is_destructive = hasattr(caller_func, "_is_destructive")
 
         use_obo = os.environ.get("USE_OBO", "false").lower() == "true"
-        user_token: AccessToken | None = get_access_token()
-        if use_obo and user_token is None:
-            raise ValueError("No access token available for authentication")
 
-        connection = self._connection_manager.get(cluster_uri, use_obo, user_token.token if user_token else None)
+        # Try to get user token from override first, then from FastMCP context
+        user_token_string: Optional[str] = None
+        if user_token_override:
+            user_token_string = user_token_override
+        else:
+            user_token: AccessToken | None = get_access_token()
+            if user_token:
+                user_token_string = user_token.token
+
+        if use_obo and user_token_string is None:
+            raise ValueError("No access token available for authentication (OBO mode requires user token)")
+
+        connection = self._connection_manager.get(cluster_uri, use_obo, user_token_string)
         client = connection.query_client
 
         # agents can send messy inputs
