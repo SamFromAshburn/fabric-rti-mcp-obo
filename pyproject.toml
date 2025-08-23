@@ -23,7 +23,8 @@ dependencies = [
     "azure-identity>=1.15.0",
     "azure-kusto-ingest~=5.0.0",
     "azure-keyvault-certificates>=4.7.0",
-    "azure-keyvault-secrets>=4.7.0"
+    "azure-keyvault-secrets>=4.7.0",
+    "azure.keyvault.keys>=4.11.0"
 ]
 
 [project.optional-dependencies]
