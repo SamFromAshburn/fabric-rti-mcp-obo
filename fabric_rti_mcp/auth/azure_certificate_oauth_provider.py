@@ -58,7 +58,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
     1. Register an application in Azure Portal
     2. Upload a certificate to the app registration
     3. Store the certificate in Azure Key Vault
-    4. Store the private key as a secret in Key Vault (named {certificate_name}-private-key)
+    4. Store the private key as a secret in Key Vault (named {certificate_name})
     5. Configure managed identity access to Key Vault
 
     Environment Variables:
@@ -192,7 +192,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
             from azure.keyvault.secrets import SecretClient
 
             secret_client = SecretClient(vault_url=self.settings.keyvault_url, credential=credential)
-            private_key_secret_name = f"{self.settings.certificate_name}-private-key"
+            private_key_secret_name = f"{self.settings.certificate_name}"
 
             try:
                 private_key_secret = secret_client.get_secret(private_key_secret_name)
