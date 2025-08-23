@@ -14,10 +14,9 @@ from typing import Any
 import httpx
 from azure.identity import ManagedIdentityCredential
 from azure.keyvault.certificates import CertificateClient
-from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from fastmcp.utilities.logging import get_logger
@@ -175,23 +174,24 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         try:
             # Create credential using managed identity
             credential = ManagedIdentityCredential(client_id=self.settings.keyvault_client_id)
-            certificate_client = CertificateClient(vault_url=self.settings.keyvault_url, credential=credential)
+            certificate_client = CertificateClient(vault_url=str(self.settings.keyvault_url), credential=credential)
 
             logger.info(f"Retrieving certificate '{self.settings.certificate_name}' from Key Vault")
-            certificate = certificate_client.get_certificate(self.settings.certificate_name)
+            certificate = certificate_client.get_certificate(str(self.settings.certificate_name))
 
             if not certificate.cer:
                 raise Exception("Certificate does not contain DER-encoded data")
 
-            # Extract certificate and private key
+            # Extract certificate bytes
             cert_bytes = certificate.cer
-            x509_cert = x509.load_der_x509_certificate(bytes(cert_bytes), default_backend())
+            # We don't need to load the certificate into an x509 object for our use case
+            # x509.load_der_x509_certificate(bytes(cert_bytes), default_backend())
 
             # For OAuth with certificate authentication, we need the private key
             # The private key should be stored as a secret in Key Vault
             from azure.keyvault.secrets import SecretClient
 
-            secret_client = SecretClient(vault_url=self.settings.keyvault_url, credential=credential)
+            secret_client = SecretClient(vault_url=str(self.settings.keyvault_url), credential=credential)
             private_key_secret_name = f"{self.settings.certificate_name}"
 
             try:
@@ -201,10 +201,51 @@ class AzureCertificateOAuthProvider(OAuthProxy):
                 if not private_key_pem:
                     raise Exception("Private key secret is empty")
 
-                # Load the private key
-                self.private_key = serialization.load_pem_private_key(
-                    private_key_pem.encode(), password=None, backend=default_backend()
-                )
+                # Load the private key - try multiple formats
+                try:
+                    # First try PEM format without password
+                    self.private_key = serialization.load_pem_private_key(
+                        private_key_pem.encode(), password=None, backend=default_backend()
+                    )
+                except ValueError as pem_error:
+                    logger.warning(f"Failed to load as PEM without password: {pem_error}")
+                    try:
+                        # Try DER format
+                        # If the private key is base64 encoded DER, decode it first
+                        try:
+                            der_data = base64.b64decode(private_key_pem)
+                            self.private_key = serialization.load_der_private_key(
+                                der_data, password=None, backend=default_backend()
+                            )
+                            logger.info("Successfully loaded private key in DER format")
+                        except Exception:
+                            # Try raw DER if it's not base64 encoded
+                            self.private_key = serialization.load_der_private_key(
+                                private_key_pem.encode(), password=None, backend=default_backend()
+                            )
+                            logger.info("Successfully loaded private key in raw DER format")
+                    except ValueError as der_error:
+                        logger.warning(f"Failed to load as DER: {der_error}")
+                        # If both PEM and DER fail, provide detailed error information
+                        logger.error(f"Failed to load private key in any supported format")
+                        logger.error(f"PEM error: {pem_error}")
+                        logger.error(f"DER error: {der_error}")
+
+                        # Provide helpful hints based on the data format
+                        if private_key_pem.startswith("-----BEGIN"):
+                            hint = "Key appears to be PEM format but may be encrypted or corrupted."
+                        elif len(private_key_pem) % 4 == 0 and all(
+                            c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+                            for c in private_key_pem
+                        ):
+                            hint = "Key appears to be base64 encoded. It may be DER, PKCS#12, or encrypted PEM."
+                        else:
+                            hint = "Key format is not recognized. Ensure it's in PEM or DER format."
+
+                        raise ValueError(
+                            f"Could not load private key in any supported format (PEM, DER). {hint} "
+                            f"Original PEM error: {pem_error}"
+                        )
 
             except Exception as e:
                 logger.error(f"Failed to retrieve private key secret '{private_key_secret_name}': {e}")
@@ -231,10 +272,10 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         header = {"alg": "RS256", "typ": "JWT", "x5t": self.certificate_thumbprint}  # Certificate thumbprint
 
         # JWT payload
-        payload = {
+        payload: dict[str, Any] = {
             "aud": f"https://login.microsoftonline.com/{self.settings.tenant_id}/oauth2/v2.0/token",
-            "iss": self.settings.client_id,
-            "sub": self.settings.client_id,
+            "iss": str(self.settings.client_id),
+            "sub": str(self.settings.client_id),
             "jti": str(time.time_ns()),  # Unique identifier
             "exp": now + 600,  # 10 minutes expiry
             "iat": now,
@@ -249,12 +290,13 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         # Create signature
         message = f"{header_b64}.{payload_b64}".encode()
 
-        # Use RSA signing with PKCS1v15 padding and SHA256
+        # Use appropriate signing method based on key type
         if isinstance(self.private_key, rsa.RSAPrivateKey):
             signature = self.private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())
+        elif isinstance(self.private_key, ec.EllipticCurvePrivateKey):
+            signature = self.private_key.sign(message, ec.ECDSA(hashes.SHA256()))
         else:
-            # For other key types, use the generic signing method
-            signature = self.private_key.sign(message, hashes.SHA256())
+            raise ValueError(f"Unsupported private key type: {type(self.private_key)}")
 
         signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
 
@@ -305,9 +347,9 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         """Override token exchange to use certificate-based authentication."""
         client_assertion = self._create_client_assertion()
 
-        token_data = {
+        token_data: dict[str, str] = {
             "grant_type": "authorization_code",
-            "client_id": self.settings.client_id,
+            "client_id": str(self.settings.client_id),
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
             "client_assertion": client_assertion,
             "code": code,
