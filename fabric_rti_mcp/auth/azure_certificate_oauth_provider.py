@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import base64
 import json
-import time
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from azure.identity import ManagedIdentityCredential
-from azure.keyvault.certificates import CertificateClient
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from azure.keyvault.keys.crypto import CryptographyClient, SignatureAlgorithm
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from fastmcp.utilities.logging import get_logger
@@ -141,7 +139,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         self.settings = settings
 
         # Load certificate and private key from Key Vault
-        self._load_certificate_from_keyvault()
+        # self._load_certificate_from_keyvault()
 
         # Apply defaults
         base_url_final = settings.base_url or "http://localhost:8000"
@@ -169,138 +167,42 @@ class AzureCertificateOAuthProvider(OAuthProxy):
             issuer_url=base_url_final,
         )
 
-    def _load_certificate_from_keyvault(self):
-        """Load certificate and private key from Azure Key Vault."""
-        try:
-            # Create credential using managed identity
-            credential = ManagedIdentityCredential(client_id=self.settings.keyvault_client_id)
-            certificate_client = CertificateClient(vault_url=str(self.settings.keyvault_url), credential=credential)
-
-            logger.info(f"Retrieving certificate '{self.settings.certificate_name}' from Key Vault")
-            certificate = certificate_client.get_certificate(str(self.settings.certificate_name))
-
-            if not certificate.cer:
-                raise Exception("Certificate does not contain DER-encoded data")
-
-            # Extract certificate bytes
-            cert_bytes = certificate.cer
-            # We don't need to load the certificate into an x509 object for our use case
-            # x509.load_der_x509_certificate(bytes(cert_bytes), default_backend())
-
-            # For OAuth with certificate authentication, we need the private key
-            # The private key should be stored as a secret in Key Vault
-            from azure.keyvault.secrets import SecretClient
-
-            secret_client = SecretClient(vault_url=str(self.settings.keyvault_url), credential=credential)
-            private_key_secret_name = f"{self.settings.certificate_name}"
-
-            try:
-                private_key_secret = secret_client.get_secret(private_key_secret_name)
-                private_key_pem = private_key_secret.value
-
-                if not private_key_pem:
-                    raise Exception("Private key secret is empty")
-
-                # Load the private key - try multiple formats
-                try:
-                    # First try PEM format without password
-                    self.private_key = serialization.load_pem_private_key(
-                        private_key_pem.encode(), password=None, backend=default_backend()
-                    )
-                except ValueError as pem_error:
-                    logger.warning(f"Failed to load as PEM without password: {pem_error}")
-                    try:
-                        # Try DER format
-                        # If the private key is base64 encoded DER, decode it first
-                        try:
-                            der_data = base64.b64decode(private_key_pem)
-                            self.private_key = serialization.load_der_private_key(
-                                der_data, password=None, backend=default_backend()
-                            )
-                            logger.info("Successfully loaded private key in DER format")
-                        except Exception:
-                            # Try raw DER if it's not base64 encoded
-                            self.private_key = serialization.load_der_private_key(
-                                private_key_pem.encode(), password=None, backend=default_backend()
-                            )
-                            logger.info("Successfully loaded private key in raw DER format")
-                    except ValueError as der_error:
-                        logger.warning(f"Failed to load as DER: {der_error}")
-                        # If both PEM and DER fail, provide detailed error information
-                        logger.error(f"Failed to load private key in any supported format")
-                        logger.error(f"PEM error: {pem_error}")
-                        logger.error(f"DER error: {der_error}")
-
-                        # Provide helpful hints based on the data format
-                        if private_key_pem.startswith("-----BEGIN"):
-                            hint = "Key appears to be PEM format but may be encrypted or corrupted."
-                        elif len(private_key_pem) % 4 == 0 and all(
-                            c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-                            for c in private_key_pem
-                        ):
-                            hint = "Key appears to be base64 encoded. It may be DER, PKCS#12, or encrypted PEM."
-                        else:
-                            hint = "Key format is not recognized. Ensure it's in PEM or DER format."
-
-                        raise ValueError(
-                            f"Could not load private key in any supported format (PEM, DER). {hint} "
-                            f"Original PEM error: {pem_error}"
-                        )
-
-            except Exception as e:
-                logger.error(f"Failed to retrieve private key secret '{private_key_secret_name}': {e}")
-                raise Exception(f"Private key not found in Key Vault as secret '{private_key_secret_name}'")
-
-            # Calculate certificate thumbprint (SHA-1 hash of DER certificate)
-            import hashlib
-
-            thumbprint = hashlib.sha1(cert_bytes).hexdigest().upper()
-            self.certificate_thumbprint = thumbprint
-
-            logger.info(f"Successfully loaded certificate and private key from Key Vault")
-            logger.info(f"Certificate thumbprint: {thumbprint}")
-
-        except Exception as e:
-            logger.error(f"Failed to load certificate from Key Vault: {e}")
-            raise
-
     def _create_client_assertion(self) -> str:
         """Create a JWT client assertion for certificate-based authentication."""
-        now = int(time.time())
 
-        # JWT header
-        header = {"alg": "RS256", "typ": "JWT", "x5t": self.certificate_thumbprint}  # Certificate thumbprint
+        from azure.keyvault.keys import KeyClient
 
-        # JWT payload
+        credential = ManagedIdentityCredential(client_id=self.settings.keyvault_client_id)
+        key_client = KeyClient(vault_url=str(self.settings.keyvault_url), credential=credential)
+        key = key_client.get_key(str(self.settings.certificate_name))
+        crypto_client = CryptographyClient(key, credential=credential)
+
+        # JWT header and payload
+        header = {"alg": "RS256", "typ": "JWT"}
         payload: dict[str, Any] = {
-            "aud": f"https://login.microsoftonline.com/{self.settings.tenant_id}/oauth2/v2.0/token",
-            "iss": str(self.settings.client_id),
-            "sub": str(self.settings.client_id),
-            "jti": str(time.time_ns()),  # Unique identifier
-            "exp": now + 600,  # 10 minutes expiry
-            "iat": now,
-            "nbf": now,
+            "iss": self.settings.client_id,
+            "sub": self.settings.client_id,
+            "aud": f"https://login.microsoftonline.com/{self.settings.tenant_id}/v2.0",
+            "jti": str(uuid.uuid4()),
+            "exp": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()),
+            "iat": int(datetime.now(timezone.utc).timestamp()),
         }
 
         # Encode header and payload
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+        def b64url_encode(data: dict[str, Any]) -> bytes:
+            return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=")
 
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        encoded_header = b64url_encode(header)
+        encoded_payload = b64url_encode(payload)
+        message = encoded_header + b"." + encoded_payload
 
-        # Create signature
-        message = f"{header_b64}.{payload_b64}".encode()
+        # Sign the message
+        sign_result = crypto_client.sign(SignatureAlgorithm.rs256, message)
+        signature = base64.urlsafe_b64encode(sign_result.signature).rstrip(b"=")
 
-        # Use appropriate signing method based on key type
-        if isinstance(self.private_key, rsa.RSAPrivateKey):
-            signature = self.private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())
-        elif isinstance(self.private_key, ec.EllipticCurvePrivateKey):
-            signature = self.private_key.sign(message, ec.ECDSA(hashes.SHA256()))
-        else:
-            raise ValueError(f"Unsupported private key type: {type(self.private_key)}")
-
-        signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip("=")
-
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        # Construct JWT
+        jwt_token = message + b"." + signature
+        return jwt_token.decode()
 
     def _create_token_verifier(self, scopes: list[str]) -> TokenVerifier:
         """Create token verifier that validates tokens via Microsoft Graph."""
@@ -319,6 +221,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
                         )
 
                         if response.status_code != 200:
+                            logger.warning(f"Token verification failed: {response.status_code}")
                             return None
 
                         user_data = response.json()
@@ -338,7 +241,8 @@ class AzureCertificateOAuthProvider(OAuthProxy):
                                 "office_location": user_data.get("officeLocation"),
                             },
                         )
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Error verifying token: {e}")
                     return None
 
         return CertificateTokenVerifier(scopes, self.settings.timeout_seconds or 10)
