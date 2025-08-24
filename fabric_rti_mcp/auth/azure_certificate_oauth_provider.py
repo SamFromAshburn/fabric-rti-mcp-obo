@@ -84,7 +84,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
     def __init__(
         self,
-        *,
+        *,        
         client_id: str | NotSetT = NotSet,
         tenant_id: str | NotSetT = NotSet,
         keyvault_url: str | NotSetT = NotSet,
@@ -155,6 +155,19 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         authorization_endpoint = f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/authorize"
         token_endpoint = f"https://login.microsoftonline.com/{settings.tenant_id}/oauth2/v2.0/token"
 
+        logger.info("AzureCertificateOAuthProvider initialized with the following settings:")
+        logger.info(f"  Client ID: {settings.client_id}")
+        logger.info(f"  Tenant ID: {settings.tenant_id}")
+        logger.info(f"  Key Vault URL: {settings.keyvault_url}")
+        logger.info(f"  Certificate Name: {settings.certificate_name}")
+        logger.info(f"  Base URL: {base_url_final}")
+        logger.info(f"  Redirect Path: {redirect_path_final}")
+        logger.info(f"  Required Scopes: {scopes_final}")
+        logger.info(f"  Timeout Seconds: {settings.timeout_seconds}")
+        logger.info(f"  Authorization Endpoint: {authorization_endpoint}")
+        logger.info(f"  Token Endpoint: {token_endpoint}")
+        logger.info(f"  Key Vault Client ID: {settings.keyvault_client_id}")
+        
         # Initialize OAuth proxy - we'll override the token exchange method
         super().__init__(
             upstream_authorization_endpoint=authorization_endpoint,
