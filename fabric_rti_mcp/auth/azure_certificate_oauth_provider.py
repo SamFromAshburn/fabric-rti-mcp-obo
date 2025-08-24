@@ -84,7 +84,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
     def __init__(
         self,
-        *,        
+        *,
         client_id: str | NotSetT = NotSet,
         tenant_id: str | NotSetT = NotSet,
         keyvault_url: str | NotSetT = NotSet,
@@ -167,7 +167,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         logger.info(f"  Authorization Endpoint: {authorization_endpoint}")
         logger.info(f"  Token Endpoint: {token_endpoint}")
         logger.info(f"  Key Vault Client ID: {settings.keyvault_client_id}")
-        
+
         # Initialize OAuth proxy - we'll override the token exchange method
         super().__init__(
             upstream_authorization_endpoint=authorization_endpoint,
