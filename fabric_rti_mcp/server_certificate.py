@@ -84,7 +84,17 @@ if __name__ == "__main__":
 
 @mcp.tool(name="get_user_info", description="Retrieves information about the authenticated Azure user.")
 def get_user_info2() -> Dict[str, Optional[str]]:
-    return AuthService.get_user_info()
+    logger.info("=== GET_USER_INFO TOOL CALLED ===")
+    try:
+        result = AuthService.get_user_info()
+        logger.info(f"User info retrieved: {result}")
+        logger.info("=== GET_USER_INFO TOOL COMPLETED ===")
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_user_info tool: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.info("=== GET_USER_INFO TOOL FAILED ===")
+        raise
 
 
 @mcp.tool(name="kusto_query", description="Executes a KQL query on the specified Kusto database.")
@@ -94,7 +104,21 @@ def kusto_query(
     database: Optional[Annotated[str, "Optional database name. If not provided, uses the default database."]] = None,
 ) -> List[Dict[str, Any]]:
     """Execute Kusto query with certificate-based authentication when available."""
-    return KustoQueryExecutor().execute(query, cluster_uri, readonly_override=False, database=database)
+    logger.info("=== KUSTO_QUERY TOOL CALLED ===")
+    logger.info(f"Query: {query[:100]}..." if len(query) > 100 else f"Query: {query}")
+    logger.info(f"Cluster URI: {cluster_uri}")
+    logger.info(f"Database: {database}")
+    
+    try:
+        result = KustoQueryExecutor().execute(query, cluster_uri, readonly_override=False, database=database)
+        logger.info(f"Kusto query returned {len(result)} rows")
+        logger.info("=== KUSTO_QUERY TOOL COMPLETED ===")
+        return result
+    except Exception as e:
+        logger.error(f"Error in kusto_query tool: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.info("=== KUSTO_QUERY TOOL FAILED ===")
+        raise
 
 
 @mcp.tool(name="kusto_command", description="Executes a Kusto management command on the specified database.")

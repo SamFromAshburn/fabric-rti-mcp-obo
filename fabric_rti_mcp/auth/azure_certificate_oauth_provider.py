@@ -169,17 +169,24 @@ class AzureCertificateOAuthProvider(OAuthProxy):
         logger.info(f"  Token Endpoint: {token_endpoint}")
         logger.info(f"  Key Vault Client ID: {settings.keyvault_client_id}")
 
+        # Create token verifier before initializing OAuth proxy
+        logger.info("Creating token verifier for OAuth proxy...")
+        token_verifier = self._create_token_verifier(scopes_final)
+        logger.info("Token verifier created successfully")
+
         # Initialize OAuth proxy - we'll override the token exchange method
+        logger.info("Initializing OAuth proxy with certificate-based authentication...")
         super().__init__(
             upstream_authorization_endpoint=authorization_endpoint,
             upstream_token_endpoint=token_endpoint,
             upstream_client_id=settings.client_id,
             upstream_client_secret="",  # Not used with certificate auth
-            token_verifier=self._create_token_verifier(scopes_final),
+            token_verifier=token_verifier,
             base_url=base_url_final,
             redirect_path=redirect_path_final,
             issuer_url=base_url_final,
         )
+        logger.info("OAuth proxy initialized successfully")
 
     def _create_client_assertion(self) -> str:
         """Create a JWT client assertion for certificate-based authentication."""
@@ -251,14 +258,20 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
     def _create_token_verifier(self, scopes: list[str]) -> TokenVerifier:
         """Create token verifier that validates tokens via Microsoft Graph."""
+        logger.info("Creating CertificateTokenVerifier instance")
+        logger.info(f"Required scopes: {scopes}")
+        logger.info(f"Timeout seconds: {self.settings.timeout_seconds or 10}")
 
         class CertificateTokenVerifier(TokenVerifier):
             def __init__(self, required_scopes: list[str], timeout: int = 10):
                 super().__init__(required_scopes=required_scopes)
                 self.timeout = timeout
+                logger.info(f"CertificateTokenVerifier initialized with timeout: {timeout}")
+                logger.info(f"CertificateTokenVerifier required scopes: {required_scopes}")
 
             async def verify_token(self, token: str) -> AccessToken | None:
                 """Verify token by calling Microsoft Graph API."""
+                logger.info("=== TOKEN VERIFICATION STARTED ===")
                 logger.info("Starting token verification via Microsoft Graph API")
                 logger.debug(f"Token length: {len(token)} characters")
                 logger.debug(f"Token prefix: {token[:20]}..." if len(token) > 20 else f"Token: {token}")
@@ -277,6 +290,7 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
                         if response.status_code != 200:
                             logger.warning(f"Token verification failed with status {response.status_code}")
+                            logger.info("=== TOKEN VERIFICATION FAILED ===")
                             return None
 
                         user_data = response.json()
@@ -303,14 +317,18 @@ class AzureCertificateOAuthProvider(OAuthProxy):
                             },
                         )
                         logger.info("AccessToken created successfully")
+                        logger.info("=== TOKEN VERIFICATION COMPLETED ===")
                         return access_token
 
                 except Exception as e:
                     logger.error(f"Error verifying token: {str(e)}")
                     logger.error(f"Exception type: {type(e).__name__}")
+                    logger.info("=== TOKEN VERIFICATION ERROR ===")
                     return None
 
-        return CertificateTokenVerifier(scopes, self.settings.timeout_seconds or 10)
+        verifier = CertificateTokenVerifier(scopes, self.settings.timeout_seconds or 10)
+        logger.info("CertificateTokenVerifier instance created and returned")
+        return verifier
 
     async def exchange_code_for_token(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Override token exchange to use certificate-based authentication."""
