@@ -108,7 +108,7 @@ def kusto_query(
     logger.info(f"Query: {query[:100]}..." if len(query) > 100 else f"Query: {query}")
     logger.info(f"Cluster URI: {cluster_uri}")
     logger.info(f"Database: {database}")
-    
+
     try:
         result = KustoQueryExecutor().execute(query, cluster_uri, readonly_override=False, database=database)
         logger.info(f"Kusto query returned {len(result)} rows")
