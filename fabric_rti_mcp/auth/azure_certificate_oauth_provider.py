@@ -12,7 +12,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import httpx
 from azure.identity import ManagedIdentityCredential
 from azure.keyvault.keys.crypto import CryptographyClient, SignatureAlgorithm
 from fastmcp.server.auth import AccessToken, TokenVerifier
@@ -20,6 +19,8 @@ from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from fastmcp.utilities.logging import get_logger
 from fastmcp.utilities.types import NotSet, NotSetT
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from fabric_rti_mcp.auth.http_logging import create_async_logging_client
 
 logger = get_logger(__name__)
 
@@ -182,13 +183,28 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
     def _create_client_assertion(self) -> str:
         """Create a JWT client assertion for certificate-based authentication."""
+        logger.info("Creating client assertion for certificate-based authentication")
+        logger.info(f"Using keyvault URL: {self.settings.keyvault_url}")
+        logger.info(f"Using certificate name: {self.settings.certificate_name}")
+        logger.info(f"Using keyvault client ID: {self.settings.keyvault_client_id}")
 
         from azure.keyvault.keys import KeyClient
 
-        credential = ManagedIdentityCredential(client_id=self.settings.keyvault_client_id)
-        key_client = KeyClient(vault_url=str(self.settings.keyvault_url), credential=credential)
-        key = key_client.get_key(str(self.settings.certificate_name))
-        crypto_client = CryptographyClient(key, credential=credential)
+        try:
+            credential = ManagedIdentityCredential(client_id=self.settings.keyvault_client_id)
+            logger.info("ManagedIdentityCredential created successfully")
+
+            key_client = KeyClient(vault_url=str(self.settings.keyvault_url), credential=credential)
+            logger.info("KeyClient created successfully")
+
+            key = key_client.get_key(str(self.settings.certificate_name))
+            logger.info(f"Key retrieved successfully: {key.name}")
+
+            crypto_client = CryptographyClient(key, credential=credential)
+            logger.info("CryptographyClient created successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Key Vault components: {str(e)}")
+            raise
 
         # JWT header and payload
         header = {"alg": "RS256", "typ": "JWT"}
@@ -201,21 +217,37 @@ class AzureCertificateOAuthProvider(OAuthProxy):
             "iat": int(datetime.now(timezone.utc).timestamp()),
         }
 
+        logger.info("JWT payload created with the following claims:")
+        logger.info(f"  iss (issuer): {payload['iss']}")
+        logger.info(f"  sub (subject): {payload['sub']}")
+        logger.info(f"  aud (audience): {payload['aud']}")
+        logger.info(f"  jti (JWT ID): {payload['jti']}")
+        logger.info(f"  exp (expiration): {payload['exp']}")
+        logger.info(f"  iat (issued at): {payload['iat']}")
+
         # Encode header and payload
         def b64url_encode(data: dict[str, Any]) -> bytes:
             return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=")
 
-        encoded_header = b64url_encode(header)
-        encoded_payload = b64url_encode(payload)
-        message = encoded_header + b"." + encoded_payload
+        try:
+            encoded_header = b64url_encode(header)
+            encoded_payload = b64url_encode(payload)
+            message = encoded_header + b"." + encoded_payload
+            logger.info("JWT header and payload encoded successfully")
 
-        # Sign the message
-        sign_result = crypto_client.sign(SignatureAlgorithm.rs256, message)
-        signature = base64.urlsafe_b64encode(sign_result.signature).rstrip(b"=")
+            # Sign the message
+            sign_result = crypto_client.sign(SignatureAlgorithm.rs256, message)
+            signature = base64.urlsafe_b64encode(sign_result.signature).rstrip(b"=")
+            logger.info("JWT message signed successfully")
 
-        # Construct JWT
-        jwt_token = message + b"." + signature
-        return jwt_token.decode()
+            # Construct JWT
+            jwt_token = message + b"." + signature
+            logger.info("JWT client assertion created successfully")
+            logger.debug(f"Client assertion length: {len(jwt_token.decode())} characters")
+            return jwt_token.decode()
+        except Exception as e:
+            logger.error(f"Failed to create JWT client assertion: {str(e)}")
+            raise
 
     def _create_token_verifier(self, scopes: list[str]) -> TokenVerifier:
         """Create token verifier that validates tokens via Microsoft Graph."""
@@ -227,19 +259,35 @@ class AzureCertificateOAuthProvider(OAuthProxy):
 
             async def verify_token(self, token: str) -> AccessToken | None:
                 """Verify token by calling Microsoft Graph API."""
+                logger.info("Starting token verification via Microsoft Graph API")
+                logger.debug(f"Token length: {len(token)} characters")
+                logger.debug(f"Token prefix: {token[:20]}..." if len(token) > 20 else f"Token: {token}")
+
                 try:
-                    async with httpx.AsyncClient(timeout=self.timeout) as client:
-                        response = await client.get(
-                            "https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {token}"}
+                    # Use the logging client for better debugging
+                    client = create_async_logging_client(timeout=self.timeout)
+                    async with client as http_client:
+                        logger.info("Making request to Microsoft Graph API /me endpoint")
+                        response = await http_client.get(
+                            "https://graph.microsoft.com/v1.0/me",
+                            headers={"Authorization": f"Bearer {token}", "User-Agent": "FastMCP-Azure-Certificate"},
                         )
 
+                        logger.info(f"Microsoft Graph API response: {response.status_code}")
+
                         if response.status_code != 200:
-                            logger.warning(f"Token verification failed: {response.status_code}")
+                            logger.warning(f"Token verification failed with status {response.status_code}")
                             return None
 
                         user_data = response.json()
+                        logger.info("Token verification successful")
+                        logger.info(f"User ID: {user_data.get('id', 'unknown')}")
+                        logger.info(
+                            f"User email: {user_data.get('mail') or user_data.get('userPrincipalName', 'unknown')}"
+                        )
+                        logger.info(f"User name: {user_data.get('displayName', 'unknown')}")
 
-                        return AccessToken(
+                        access_token = AccessToken(
                             token=token,
                             client_id=str(user_data.get("id", "unknown")),
                             scopes=self.required_scopes or [],
@@ -254,15 +302,28 @@ class AzureCertificateOAuthProvider(OAuthProxy):
                                 "office_location": user_data.get("officeLocation"),
                             },
                         )
+                        logger.info("AccessToken created successfully")
+                        return access_token
+
                 except Exception as e:
-                    logger.error(f"Error verifying token: {e}")
+                    logger.error(f"Error verifying token: {str(e)}")
+                    logger.error(f"Exception type: {type(e).__name__}")
                     return None
 
         return CertificateTokenVerifier(scopes, self.settings.timeout_seconds or 10)
 
     async def exchange_code_for_token(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Override token exchange to use certificate-based authentication."""
-        client_assertion = self._create_client_assertion()
+        logger.info("Starting OAuth code exchange with certificate-based authentication")
+        logger.info(f"Authorization code length: {len(code)} characters")
+        logger.info(f"Redirect URI: {redirect_uri}")
+
+        try:
+            client_assertion = self._create_client_assertion()
+            logger.info("Client assertion created successfully for token exchange")
+        except Exception as e:
+            logger.error(f"Failed to create client assertion: {str(e)}")
+            raise
 
         token_data: dict[str, str] = {
             "grant_type": "authorization_code",
@@ -273,15 +334,46 @@ class AzureCertificateOAuthProvider(OAuthProxy):
             "redirect_uri": redirect_uri,
         }
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://login.microsoftonline.com/{self.settings.tenant_id}/oauth2/v2.0/token",
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+        logger.info("Token exchange request data prepared:")
+        logger.info(f"  grant_type: {token_data['grant_type']}")
+        logger.info(f"  client_id: {token_data['client_id']}")
+        logger.info(f"  client_assertion_type: {token_data['client_assertion_type']}")
+        logger.info(f"  client_assertion length: {len(token_data['client_assertion'])} characters")
+        logger.info(f"  code length: {len(token_data['code'])} characters")
+        logger.info(f"  redirect_uri: {token_data['redirect_uri']}")
 
-            if response.status_code != 200:
-                logger.error(f"Token exchange failed: {response.status_code} - {response.text}")
-                raise Exception("Token exchange failed")
+        token_endpoint = f"https://login.microsoftonline.com/{self.settings.tenant_id}/oauth2/v2.0/token"
+        logger.info(f"Making token exchange request to: {token_endpoint}")
 
-            return response.json()
+        try:
+            # Use the logging client for better debugging
+            client = create_async_logging_client()
+            async with client as http_client:
+                response = await http_client.post(
+                    token_endpoint,
+                    data=token_data,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "User-Agent": "FastMCP-Azure-Certificate",
+                    },
+                )
+
+                logger.info(f"Token exchange response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    logger.error(f"Token exchange failed with status {response.status_code}")
+                    raise Exception(f"Token exchange failed with status {response.status_code}: {response.text}")
+
+                response_data = response.json()
+                logger.info("Token exchange successful")
+                logger.info(f"Access token received (length: {len(response_data.get('access_token', ''))} characters)")
+                logger.info(f"Token type: {response_data.get('token_type', 'unknown')}")
+                logger.info(f"Expires in: {response_data.get('expires_in', 'unknown')} seconds")
+                logger.info(f"Scope: {response_data.get('scope', 'unknown')}")
+
+                return response_data
+
+        except Exception as e:
+            logger.error(f"HTTP request failed during token exchange: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            raise

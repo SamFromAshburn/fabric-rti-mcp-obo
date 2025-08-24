@@ -9,6 +9,7 @@ from azure.kusto.data import ClientRequestProperties, KustoConnectionStringBuild
 from fastmcp.server.dependencies import AccessToken, get_access_token
 
 from fabric_rti_mcp import __version__  # type: ignore
+from fabric_rti_mcp.common import logger
 from fabric_rti_mcp.kusto.kusto_config import KustoConfig
 from fabric_rti_mcp.kusto.kusto_connection import KustoConnection, sanitize_uri
 from fabric_rti_mcp.kusto.kusto_response_formatter import format_results
@@ -101,28 +102,63 @@ class KustoQueryExecutor:
         is_destructive = hasattr(caller_func, "_is_destructive")
 
         use_obo = os.environ.get("USE_OBO", "false").lower() == "true"
+        logger.info(f"Executing Kusto query with OBO mode: {use_obo}")
+        logger.info(f"Target cluster URI: {cluster_uri}")
+        logger.info(f"Database: {database or 'default'}")
+        logger.info(f"Query length: {len(query)} characters")
+        logger.info(f"Readonly override: {readonly_override}")
 
         # Try to get user token from override first, then from FastMCP context
         user_token_string: Optional[str] = None
         if user_token_override:
             user_token_string = user_token_override
+            logger.info("Using provided user token override")
         else:
             user_token: AccessToken | None = get_access_token()
             if user_token:
                 user_token_string = user_token.token
+                logger.info("Retrieved user token from FastMCP context")
+                logger.debug(f"Token length: {len(user_token_string)} characters")
+                logger.debug(f"Token scopes: {getattr(user_token, 'scopes', 'unknown')}")
+            else:
+                logger.warning("No access token available from FastMCP context")
 
         if use_obo and user_token_string is None:
+            logger.error("OBO mode enabled but no access token available")
             raise ValueError("No access token available for authentication (OBO mode requires user token)")
+        elif not use_obo:
+            logger.info("OBO mode disabled, proceeding without user token")
 
         connection = self._connection_manager.get(cluster_uri, use_obo, user_token_string)
+        logger.info(f"Retrieved Kusto connection for URI: {cluster_uri}")
+
         client = connection.query_client
+        logger.info("Retrieved Kusto query client from connection")
 
         # agents can send messy inputs
         query = query.strip()
+        logger.debug(f"Cleaned query: {query[:100]}..." if len(query) > 100 else f"Query: {query}")
 
         database = database or connection.default_database
         database = database.strip()
+        logger.info(f"Using database: {database}")
 
         crp = self._create_client_request_properties(action_name, is_destructive, readonly_override)
-        result_set = client.execute(database, query, crp)
-        return format_results(result_set)
+        logger.info(f"Created client request properties for action: {action_name}")
+        logger.info(f"Request ID: {getattr(crp, 'client_request_id', 'unknown')}")
+
+        try:
+            logger.info("Executing Kusto query...")
+            result_set = client.execute(database, query, crp)
+            logger.info("Kusto query executed successfully")
+
+            formatted_results = format_results(result_set)
+            logger.info(f"Query returned {len(formatted_results)} rows")
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Kusto query execution failed: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Query that failed: {query}")
+            logger.error(f"Database: {database}")
+            raise

@@ -24,10 +24,37 @@ logger.info(f"Version: {__version__}")
 logger.info(f"Python version: {sys.version}")
 logger.info(f"Platform: {sys.platform}")
 logger.info(f"PID: {os.getpid()}")
-logger.info(f"USE OBO: {os.getenv('USE_OBO', '')}")
-logger.info(f"BASE URL: {os.getenv('BASE_URL', '')}")
 
+# Log authentication-related environment variables
 use_obo = os.getenv("USE_OBO", "").lower() == "true"
+logger.info(f"USE_OBO: {use_obo}")
+logger.info(f"BASE_URL: {os.getenv('BASE_URL', 'not set')}")
+
+# Log OAuth provider environment variables (without sensitive values)
+oauth_env_vars = [
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_CLIENT_ID",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_TENANT_ID",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_KEYVAULT_URL",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_CERTIFICATE_NAME",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_KEYVAULT_CLIENT_ID",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_BASE_URL",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_REDIRECT_PATH",
+    "FASTMCP_SERVER_AUTH_AZURE_CERT_TIMEOUT_SECONDS",
+]
+
+logger.info("OAuth Provider Environment Variables:")
+for var in oauth_env_vars:
+    value = os.getenv(var)
+    logger.info(f"  {var}: {'set' if value else 'not set'}")
+
+# Log OBO-related environment variables
+obo_env_vars = ["KEYVAULT_URL", "AZURE_CLIENT_CERTIFICATE_NAME", "KEYVAULT_CLIENT_ID", "TENANT_ID", "APP_CLIENT_ID"]
+
+logger.info("OBO Environment Variables:")
+for var in obo_env_vars:
+    value = os.getenv(var)
+    logger.info(f"  {var}: {'set' if value else 'not set'}")
+
 cert_auth_handler = None
 
 if use_obo:

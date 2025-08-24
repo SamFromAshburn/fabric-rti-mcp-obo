@@ -34,45 +34,100 @@ class KustoConnection:
         user_token: Optional[str],
         default_database: Optional[str] = None,
     ):
+        logger.info(f"Initializing KustoConnection for cluster: {cluster_uri}")
+        logger.info(f"Use OBO: {useOBO}")
+        logger.info(f"User token provided: {user_token is not None}")
+        logger.info(f"Default database: {default_database}")
 
         cluster_uri = sanitize_uri(cluster_uri)
-        kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
-            connection_string=cluster_uri,
-            credential_from_login_endpoint=lambda login_endpoint: self._get_credential(
-                login_endpoint, useOBO, user_token
-            ),
-        )
+        logger.info(f"Sanitized cluster URI: {cluster_uri}")
 
-        self.query_client = KustoClient(kcsb)
-        self.ingestion_client = KustoStreamingIngestClient(kcsb)
+        try:
+            kcsb = KustoConnectionStringBuilder.with_azure_token_credential(
+                connection_string=cluster_uri,
+                credential_from_login_endpoint=lambda login_endpoint: self._get_credential(
+                    login_endpoint, useOBO, user_token
+                ),
+            )
+            logger.info("KustoConnectionStringBuilder created successfully")
 
-        default_database = default_database or KustoConnectionStringBuilder.DEFAULT_DATABASE_NAME
-        default_database = default_database.strip()
-        self.default_database = default_database
+            self.query_client = KustoClient(kcsb)
+            logger.info("KustoClient created successfully")
+
+            self.ingestion_client = KustoStreamingIngestClient(kcsb)
+            logger.info("KustoStreamingIngestClient created successfully")
+
+            default_database = default_database or KustoConnectionStringBuilder.DEFAULT_DATABASE_NAME
+            default_database = default_database.strip()
+            self.default_database = default_database
+            logger.info(f"Default database set to: {self.default_database}")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize KustoConnection: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            raise
 
     def _get_credential(
         self, login_endpoint: str, useOBO: Optional[bool], user_token: Optional[str]
     ) -> ChainedTokenCredential:
+        logger.info(f"Creating credential for login endpoint: {login_endpoint}")
+        logger.info(f"Use OBO: {useOBO}")
+        logger.info(f"User token available: {user_token is not None}")
+
         if useOBO and user_token:
-            cert = self._get_certificate_from_keyvault(
-                keyvault_url=os.environ.get("KEYVAULT_URL", ""),
-                certificate_name=os.environ.get("AZURE_CLIENT_CERTIFICATE_NAME", ""),
-                client_id=os.environ.get("KEYVAULT_CLIENT_ID", ""),
-            )
-            return ChainedTokenCredential(
-                OnBehalfOfCredential(
-                    tenant_id=os.environ.get("TENANT_ID", ""),
+            logger.info("Creating OnBehalfOfCredential for OBO authentication")
+
+            # Log environment variables (without sensitive values)
+            keyvault_url = os.environ.get("KEYVAULT_URL", "")
+            certificate_name = os.environ.get("AZURE_CLIENT_CERTIFICATE_NAME", "")
+            keyvault_client_id = os.environ.get("KEYVAULT_CLIENT_ID", "")
+            tenant_id = os.environ.get("TENANT_ID", "")
+            app_client_id = os.environ.get("APP_CLIENT_ID", "")
+
+            logger.info(f"Key Vault URL: {keyvault_url}")
+            logger.info(f"Certificate name: {certificate_name}")
+            logger.info(f"Key Vault client ID: {keyvault_client_id}")
+            logger.info(f"Tenant ID: {tenant_id}")
+            logger.info(f"App client ID: {app_client_id}")
+
+            if not all([keyvault_url, certificate_name, tenant_id, app_client_id]):
+                logger.error("Missing required environment variables for OBO authentication")
+                raise ValueError("Missing required environment variables for OBO authentication")
+
+            try:
+                cert = self._get_certificate_from_keyvault(
+                    keyvault_url=keyvault_url,
+                    certificate_name=certificate_name,
+                    client_id=keyvault_client_id,
+                )
+                logger.info("Certificate retrieved successfully for OBO credential")
+
+                obo_credential = OnBehalfOfCredential(
+                    tenant_id=tenant_id,
                     user_assertion=user_token,
-                    client_id=os.environ.get("APP_CLIENT_ID", ""),
+                    client_id=app_client_id,
                     client_certificate=cert,
                 )
-            )
+                logger.info("OnBehalfOfCredential created successfully")
 
-        return DefaultAzureCredential(
-            exclude_shared_token_cache_credential=True,
-            exclude_interactive_browser_credential=False,
-            authority=login_endpoint,
-        )
+                return ChainedTokenCredential(obo_credential)
+
+            except Exception as e:
+                logger.error(f"Failed to create OnBehalfOfCredential: {str(e)}")
+                raise
+
+        logger.info("Creating DefaultAzureCredential for standard authentication")
+        try:
+            credential = DefaultAzureCredential(
+                exclude_shared_token_cache_credential=True,
+                exclude_interactive_browser_credential=False,
+                authority=login_endpoint,
+            )
+            logger.info("DefaultAzureCredential created successfully")
+            return credential
+        except Exception as e:
+            logger.error(f"Failed to create DefaultAzureCredential: {str(e)}")
+            raise
 
     def _get_certificate_from_keyvault(
         self, keyvault_url: str, certificate_name: str, client_id: Optional[str] = None
@@ -94,9 +149,11 @@ class KustoConnection:
         try:
             # Create credential - DefaultAzureCredential will try multiple auth methods
             # including managed identity
+            logger.info(f"Creating ManagedIdentityCredential with client ID: {client_id}")
             credential = ManagedIdentityCredential(client_id=client_id)
+
             cert_client = CertificateClient(vault_url=keyvault_url, credential=credential)
-            logger.info(f"Retrieving certificate '{certificate_name}' from Key Vault")
+            logger.info(f"Retrieving certificate '{certificate_name}' from Key Vault: {keyvault_url}")
 
             # Get the certificate
             certificate = cert_client.get_certificate(certificate_name)
@@ -110,20 +167,28 @@ class KustoConnection:
             # The certificate object contains metadata, but to get the actual certificate data
             # we need to get it as a secret (which contains the private key if available)
             secret_client = SecretClient(vault_url=keyvault_url, credential=credential)
+            logger.info("Created SecretClient for retrieving certificate private key")
 
             # Get the certificate with private key as a secret
             certificate_secret = secret_client.get_secret(certificate_name)
+            logger.info("Certificate secret retrieved successfully")
 
             # The secret value contains the certificate in PFX format (with private key)
             if certificate_secret.value:
                 certificate_bytes = certificate_secret.value.encode("utf-8")
+                logger.info(f"Certificate bytes retrieved (length: {len(certificate_bytes)})")
             else:
+                logger.error("Certificate secret value is empty")
                 raise Exception("Certificate secret value is empty")
 
             return certificate_bytes
 
         except Exception as e:
-            logger.error(f"Failed to retrieve certificate: {str(e)}")
+            logger.error(f"Failed to retrieve certificate from Key Vault: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Key Vault URL: {keyvault_url}")
+            logger.error(f"Certificate name: {certificate_name}")
+            logger.error(f"Client ID: {client_id}")
             raise
 
 
