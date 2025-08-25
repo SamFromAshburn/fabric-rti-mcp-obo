@@ -47,10 +47,15 @@ if use_obo:
         tenant_id = os.getenv("TENANT_ID", "")
         client_id = os.getenv("APP_CLIENT_ID", "")
         jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+        
+        # Accept both api:// prefixed and plain client ID as audience
+        # This handles tokens requested with different resource formats
+        audiences = [f"api://{client_id}", client_id]
+        
         verifier = JWTVerifier(
             jwks_uri=jwks_url,
             issuer=f"https://login.microsoftonline.com/{tenant_id}/v2.0",
-            audience=f"api://{client_id}",
+            audience=audiences,
         )
         mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", auth=verifier)
     except Exception as e:
