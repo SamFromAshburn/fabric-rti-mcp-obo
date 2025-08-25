@@ -10,10 +10,10 @@ import sys
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 
 from fabric_rti_mcp import __version__
 from fabric_rti_mcp.auth.auth_service import AuthService
-from fabric_rti_mcp.auth.azure_certificate_oauth_provider import AzureCertificateOAuthProvider
 from fabric_rti_mcp.common import logger
 from fabric_rti_mcp.kusto.kusto_query_executor import KustoQueryExecutor
 from fabric_rti_mcp.staticstrings import StaticStrings
@@ -30,23 +30,6 @@ use_obo = os.getenv("USE_OBO", "").lower() == "true"
 logger.info(f"USE_OBO: {use_obo}")
 logger.info(f"BASE_URL: {os.getenv('BASE_URL', 'not set')}")
 
-# Log OAuth provider environment variables (without sensitive values)
-oauth_env_vars = [
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_CLIENT_ID",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_TENANT_ID",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_KEYVAULT_URL",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_CERTIFICATE_NAME",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_KEYVAULT_CLIENT_ID",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_BASE_URL",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_REDIRECT_PATH",
-    "FASTMCP_SERVER_AUTH_AZURE_CERT_TIMEOUT_SECONDS",
-]
-
-logger.info("OAuth Provider Environment Variables:")
-for var in oauth_env_vars:
-    value = os.getenv(var)
-    logger.info(f"  {var}: {'set' if value else 'not set'}")
-
 # Log OBO-related environment variables
 obo_env_vars = ["KEYVAULT_URL", "AZURE_CLIENT_CERTIFICATE_NAME", "KEYVAULT_CLIENT_ID", "TENANT_ID", "APP_CLIENT_ID"]
 
@@ -59,26 +42,30 @@ cert_auth_handler = None
 
 if use_obo:
     try:
-        # Documentation: https://gofastmcp.com/integrations/azure
-        # FastMCP's Azure Provider does NOT accept certificates, only azure secrets.
-        # This overrides this behavior.
-        provider = AzureCertificateOAuthProvider()
-        logger.info("AzureCertificateOAuthProvider Provider Initialized")
-        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", auth=provider)
+        # Initialize JWT Verifier for OBO flow. This verifier does not exchange tokens for
+        # downstream. This happens when making the call in the tool.
+        tenant_id = os.getenv("TENANT_ID", "")
+        client_id = os.getenv("APP_CLIENT_ID", "")
+        jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+        verifier = JWTVerifier(
+            jwks_uri=jwks_url,
+            issuer=f"https://login.microsoftonline.com/{tenant_id}/v2.0",
+            audience=f"api://{client_id}",
+        )
+        mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0", auth=verifier)
     except Exception as e:
-        logger.error(f"Failed to initialize AzureCertificateOAuthProvider: {e}")
-        raise RuntimeError(f"AzureCertificateOAuthProvider setup failed: {e}")
+        logger.error(f"Failed to initialize MCP Server: {e}")
+        raise RuntimeError(f"Bearer Token setup failed: {e}")
 else:
     # Create FastMCP instance without OAuth provider
     # No Authentication will be handled. Meant for local dev.
     mcp = FastMCP(name="fabric-rti-mcp-server", port=80, host="0.0.0.0")
-    logger.info("FastMCP initialized without OAuth (using certificate authentication)")
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
-
 # endregion
 
+# region Tools
 # region Tools
 
 
